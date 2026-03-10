@@ -23,9 +23,11 @@ from matplotlib.figure import Figure
 # =============================
 # Model Loading
 # =============================
+import sys
+sys.path.insert(0, str(Path(__file__).parent))
 from models.unet_blindspot import UNetBlindspot as UNet
 
-CKPT_PATH = Path("checkpoints/n2v_unet/ckpt_1600.pt")
+CKPT_PATH = Path("checkpoints/n2v_unet/ckpt_5805.pt")
 
 # Force CUDA if available
 if torch.cuda.is_available():
@@ -615,7 +617,7 @@ class DenoisingApp:
                 
                 # Step 3: Load checkpoint (50%)
                 update_progress(50, "Loading checkpoint...")
-                ckpt_path = Path("checkpoints/n2v_unet/ckpt_1600.pt")
+                ckpt_path = Path("checkpoints/n2v_unet/ckpt_5805.pt")
                 checkpoint = torch.load(ckpt_path, map_location=DEVICE)
                 
                 # Step 4: Load weights (70%)

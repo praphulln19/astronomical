@@ -46,6 +46,21 @@ def train(args):
     model = UNetBlindspot(in_ch=3, base=args.base).to(device)
     opt = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
+    # ---- Load checkpoint if resuming ----
+    global_step = 0
+    start_epoch = 1
+    if args.resume:
+        resume_path = Path(args.resume)
+        if resume_path.exists():
+            print(f"[resume] Loading checkpoint from {resume_path}")
+            ckpt = torch.load(resume_path, map_location=device)
+            model.load_state_dict(ckpt["model"])
+            opt.load_state_dict(ckpt["opt"])
+            global_step = ckpt.get("step", 0)
+            print(f"[resume] Resuming from step {global_step}")
+        else:
+            print(f"[warn] Checkpoint {resume_path} not found, starting from scratch")
+
     # ---- AMP setup (PyTorch 2.6 prefers positional device arg) ----
     if HAS_TORCH_AMP:
         scaler = GradScaler("cuda" if use_cuda else "cpu",
@@ -56,7 +71,6 @@ def train(args):
         scaler = GradScaler(enabled=(args.amp and use_cuda))
         autocast_args = dict(enabled=(args.amp and use_cuda))
 
-    global_step = 0
     best_val = float("inf")
     no_improve = 0  # for early stopping
 
@@ -129,6 +143,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--patch_csv", type=str, default="data/manifests/patches_splits.csv")
     ap.add_argument("--outdir", type=str, default="checkpoints/n2v_unet")
+    ap.add_argument("--resume", type=str, default=None, help="Path to checkpoint to resume from")
     ap.add_argument("--epochs", type=int, default=20)
     ap.add_argument("--batch_size", type=int, default=8)
     ap.add_argument("--num_workers", type=int, default=0)  # Windows-safe; bump on Linux/Colab

@@ -18,7 +18,7 @@ import time
 # =============================
 from models.unet_blindspot import UNetBlindspot as UNet
 
-CKPT_PATH = Path("checkpoints/n2v_unet/ckpt_1600.pt")
+CKPT_PATH = Path("checkpoints/n2v_unet/ckpt_5805.pt")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 def load_model():

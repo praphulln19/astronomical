@@ -1,8 +1,12 @@
 # src/eval/metrics_and_plots.py
 from __future__ import annotations
 import argparse
+import sys
 from pathlib import Path
 from typing import Tuple, List, Dict
+
+# Add src directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
