@@ -20,5 +20,8 @@ scipy>=1.7.0
 # Image Processing (for realistic noise generation)
 opencv-python>=4.5.0
 
-# GUI Visualization
-tkinter  # Usually comes with Python
+# Note: tkinter is required for GUI but comes bundled with Python
+# If tkinter is missing, install it via your system package manager:
+# Ubuntu/Debian: sudo apt-get install python3-tk
+# Fedora: sudo dnf install python3-tkinter
+# Windows/Mac: Reinstall Python with tcl/tk support enabled
