@@ -10,12 +10,13 @@ This project implements self-supervised deep learning for astronomical image den
 
 - Self-supervised learning without clean reference images
 - Blind-spot training with 5×5 pixel masking
-- U-Net architecture with skip connections
+- Multiple model architectures: U-Net and CNN-U-Net Hybrid
 - Early stopping and mixed precision training
 - Percentile-based normalization for astronomical data
 - Overlapping tile extraction and cosine-weighted stitching
 - Star detection and flux preservation analysis
 - Interactive GUI for prediction and analysis
+- Model factory with configurable architecture selection
 
 ```
 astronomical-data-denoising/
@@ -169,6 +170,25 @@ Noise2Void enables self-supervised denoising without clean reference images. Dur
 - Star detection accuracy (DAOStarFinder)
 - Flux preservation analysis
 - Precision, recall, and F1-score
+
+## Documentation
+
+For comprehensive technical documentation including:
+- Complete model architecture details
+- Data preprocessing pipeline specifications
+- Training methodology and optimization techniques
+- Inference pipeline and inference examples
+- Model performance metrics and benchmarks
+
+See [MODEL_ARCHITECTURE_DOCUMENTATION.md](MODEL_ARCHITECTURE_DOCUMENTATION.md)
+
+## Recent Improvements
+
+- **Model Factory**: Unified architecture selection via `--arch` parameter
+- **Hybrid Architecture**: CNN-U-Net hybrid model for improved performance
+- **Checkpoint Metadata**: Automatic architecture and configuration tracking in saved models
+- **Training Stability**: Lock guards prevent concurrent training conflicts
+- **Enhanced Logging**: Flushed logs for real-time progress tracking
 
 ## Citation
 

@@ -1,7 +1,10 @@
 # src/train_n2v.py
 from __future__ import annotations
 import argparse
+import atexit
+import os
 from pathlib import Path
+import time
 
 import torch
 from torch.optim import AdamW
@@ -19,6 +22,50 @@ from models.unet_blindspot import UNetBlindspot
 from losses.masked_loss import make_center_mask, masked_l2
 
 
+def _log(msg: str):
+    # Always flush so VS Code terminal shows progress immediately.
+    print(msg, flush=True)
+
+
+def _pid_exists(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def acquire_run_lock(outdir: str | Path, force: bool = False):
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    lock_path = outdir / "train.lock"
+
+    if lock_path.exists() and not force:
+        try:
+            prev_pid = int(lock_path.read_text(encoding="utf-8").strip() or "0")
+        except Exception:
+            prev_pid = 0
+        if _pid_exists(prev_pid):
+            raise RuntimeError(
+                f"Another training process appears active (pid={prev_pid}). "
+                f"Stop it first or rerun with --force_lock."
+            )
+
+    lock_path.write_text(str(os.getpid()), encoding="utf-8")
+
+    def _cleanup_lock():
+        try:
+            if lock_path.exists():
+                lock_path.unlink()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup_lock)
+    return lock_path
+
+
 def save_ckpt(model, opt, step, outdir: str | Path):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -29,6 +76,9 @@ def save_ckpt(model, opt, step, outdir: str | Path):
 
 
 def train(args):
+    lock_path = acquire_run_lock(args.outdir, force=args.force_lock)
+    _log(f"[lock] acquired {lock_path}")
+
     use_cuda = torch.cuda.is_available()
     device = "cuda" if use_cuda else "cpu"
 
@@ -43,6 +93,19 @@ def train(args):
         use_aug=True,
     )
 
+    n_train = len(train_loader.dataset)
+    n_val = len(val_loader.dataset)
+    if n_train == 0:
+        raise RuntimeError("Train split is empty. Check patches_splits.csv and split column.")
+    if n_val == 0:
+        raise RuntimeError("Val split is empty. Check patches_splits.csv and split column.")
+
+    _log(
+        f"[setup] device={device} amp={bool(args.amp and use_cuda)} "
+        f"train_samples={n_train} val_samples={n_val} "
+        f"train_batches={len(train_loader)} val_batches={len(val_loader)}"
+    )
+
     model = UNetBlindspot(in_ch=3, base=args.base).to(device)
     opt = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
@@ -52,14 +115,15 @@ def train(args):
     if args.resume:
         resume_path = Path(args.resume)
         if resume_path.exists():
-            print(f"[resume] Loading checkpoint from {resume_path}")
-            ckpt = torch.load(resume_path, map_location=device)
+            _log(f"[resume] Loading checkpoint from {resume_path}")
+            # Explicitly set weights_only to avoid ambiguous defaults in newer PyTorch.
+            ckpt = torch.load(resume_path, map_location=device, weights_only=False)
             model.load_state_dict(ckpt["model"])
             opt.load_state_dict(ckpt["opt"])
             global_step = ckpt.get("step", 0)
-            print(f"[resume] Resuming from step {global_step}")
+            _log(f"[resume] Resuming from step {global_step}")
         else:
-            print(f"[warn] Checkpoint {resume_path} not found, starting from scratch")
+            _log(f"[warn] Checkpoint {resume_path} not found, starting from scratch")
 
     # ---- AMP setup (PyTorch 2.6 prefers positional device arg) ----
     if HAS_TORCH_AMP:
@@ -75,6 +139,8 @@ def train(args):
     no_improve = 0  # for early stopping
 
     for epoch in range(1, args.epochs + 1):
+        epoch_start = time.time()
+        _log(f"[epoch] {epoch}/{args.epochs} started")
         model.train()
         running = 0.0
 
@@ -100,7 +166,7 @@ def train(args):
             global_step += 1
 
             if global_step % args.log_every == 0:
-                print(f"[train] epoch {epoch} step {global_step} loss {running/args.log_every:.5f}")
+                _log(f"[train] epoch {epoch} step {global_step} loss {running/args.log_every:.5f}")
                 running = 0.0
 
             # Limit work per epoch if requested
@@ -122,21 +188,23 @@ def train(args):
                 vcount += 1
             vloss /= max(1, vcount)
 
-        print(f"[val] epoch {epoch} masked-L2 {vloss:.5f}")
+        _log(f"[val] epoch {epoch} masked-L2 {vloss:.5f}")
+        _log(f"[epoch] {epoch}/{args.epochs} finished in {(time.time() - epoch_start):.1f}s")
 
         # ---- early stopping + best checkpoint ----
         if vloss + args.min_delta < best_val:
             best_val = vloss
             no_improve = 0
             save_ckpt(model, opt, global_step, args.outdir)
+            _log(f"[ckpt] saved at step {global_step}")
         else:
             no_improve += 1
-            print(f"[val] no improvement count = {no_improve}")
+            _log(f"[val] no improvement count = {no_improve}")
             if no_improve >= args.early_stop_patience:
-                print(f"[early stop] stopping after {args.early_stop_patience} epochs without improvement")
+                _log(f"[early stop] stopping after {args.early_stop_patience} epochs without improvement")
                 break
 
-    print(f"[done] best val masked-L2: {best_val:.5f}  ckpts in {args.outdir}")
+    _log(f"[done] best val masked-L2: {best_val:.5f}  ckpts in {args.outdir}")
 
 
 if __name__ == "__main__":
@@ -161,6 +229,8 @@ if __name__ == "__main__":
                     help="Stop after N epochs with no val improvement.")
     ap.add_argument("--min_delta", type=float, default=1e-4,
                     help="Minimum improvement in val loss to count as progress.")
+    ap.add_argument("--force_lock", action="store_true",
+                    help="Force start even if a previous train.lock exists.")
 
     args = ap.parse_args()
     train(args)
